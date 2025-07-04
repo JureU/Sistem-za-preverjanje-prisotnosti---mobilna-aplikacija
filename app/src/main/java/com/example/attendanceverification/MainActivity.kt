@@ -92,32 +92,46 @@ class MainActivity : AppCompatActivity() {
         // Local Host
         webView.loadUrl("http://192.168.1.10:8080/")
         // With ngrok for HTTPS
-        // webView.loadUrl("http://192.168.1.10:8080/")
+        // webView.loadUrl("https://c037-2a00-ee2-6b05-5500-907d-2612-624f-d9c8.ngrok-free.app")
     }
 
     private fun injectQRScannerJS() {
         val jsCode = """
-            (function() {
+        (function() {
+            const sessionInput = document.getElementById('session-token');
+            if (sessionInput) {
+                const container = document.createElement('div');
+                container.style.marginTop = '10px';
+                container.style.marginBottom = '10px';
+
+                const qrButton = document.createElement('button');
+                qrButton.textContent = '📷 Scan QR Code';
+                qrButton.type = 'button';
+                qrButton.style.width = '100%';
+                qrButton.style.marginTop = '8px';
+                qrButton.style.padding = '10px';
+                qrButton.style.backgroundColor = '#4CAF50';
+                qrButton.style.color = 'white';
+                qrButton.style.border = 'none';
+                qrButton.style.borderRadius = '5px';
+                qrButton.style.fontSize = '16px';
+
+                qrButton.onclick = function() {
+                    AndroidQRScanner.startScan();
+                };
+
+                container.appendChild(qrButton);
+                sessionInput.parentNode.insertBefore(container, sessionInput.nextSibling);
+            }
+
+            window.onQRScanned = function(qrData) {
                 const sessionInput = document.getElementById('session-token');
                 if (sessionInput) {
-                    const qrButton = document.createElement('button');
-                    qrButton.textContent = '📷 Scan QR Code';
-                    qrButton.type = 'button';
-                    qrButton.style.marginLeft = '10px';
-                    qrButton.onclick = function() {
-                        AndroidQRScanner.startScan();
-                    };
-                    sessionInput.parentNode.insertBefore(qrButton, sessionInput.nextSibling);
+                    sessionInput.value = qrData;
                 }
-
-                window.onQRScanned = function(qrData) {
-                    const sessionInput = document.getElementById('session-token');
-                    if (sessionInput) {
-                        sessionInput.value = qrData;
-                    }
-                };
-            })();
-        """.trimIndent()
+            };
+        })();
+    """.trimIndent()
 
         webView.evaluateJavascript(jsCode, null)
     }
