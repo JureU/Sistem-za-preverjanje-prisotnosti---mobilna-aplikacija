@@ -12,6 +12,11 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.zxing.integration.android.IntentIntegrator
 import com.google.zxing.integration.android.IntentResult
+import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.net.Uri
+import android.util.Base64
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
@@ -63,11 +68,32 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.addJavascriptInterface(QRScannerInterface(), "AndroidQRScanner")
+        webView.addJavascriptInterface(MetaMaskInterface(), "AndroidMetaMask")
 
         webView.webViewClient = object : WebViewClient() {
+
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val url = request?.url.toString()
+
+                // ✅ Handle MetaMask deep links with app data
+                if (url.startsWith("intent://") || url.startsWith("metamask://") || url.startsWith("https://metamask.app.link")) {
+                    try {
+                        // Don't handle these URLs here - let the JavaScript interface handle MetaMask opening
+                        return false
+                    } catch (e: ActivityNotFoundException) {
+                        Toast.makeText(this@MainActivity, "MetaMask not installed", Toast.LENGTH_SHORT).show()
+                        return true
+                    }
+                }
+
+                // Load everything else normally inside the WebView
+                return false
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 injectQRScannerJS()
+                injectMetaMaskJS()
             }
         }
 
@@ -90,9 +116,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadWebApp() {
         // Local Host
-        webView.loadUrl("http://192.168.1.10:8080/")
+        // webView.loadUrl("http://192.168.1.10:8080/")
         // With ngrok for HTTPS
-        // webView.loadUrl("https://c037-2a00-ee2-6b05-5500-907d-2612-624f-d9c8.ngrok-free.app")
+        webView.loadUrl("https://81ff-2a00-ee2-6b05-5500-6552-69a-45b4-1c21.ngrok-free.app")
     }
 
     private fun injectQRScannerJS() {
@@ -130,6 +156,65 @@ class MainActivity : AppCompatActivity() {
                     sessionInput.value = qrData;
                 }
             };
+        })();
+    """.trimIndent()
+
+        webView.evaluateJavascript(jsCode, null)
+    }
+
+    private fun injectMetaMaskJS() {
+        val jsCode = """
+        (function() {
+            // Override the connectWallet function to use Android MetaMask integration
+            window.originalConnectWallet = window.connectWallet;
+            
+            window.connectWallet = async function() {
+                try {
+                    if (window.AndroidMetaMask) {
+                        console.log("Using Android MetaMask integration...");
+                        return await connectMetaMaskAndroid();
+                    } else {
+                        console.log("Using original wallet connection...");
+                        return await window.originalConnectWallet();
+                    }
+                } catch (error) {
+                    console.error("Wallet connection failed:", error);
+                    throw error;
+                }
+            };
+
+            async function connectMetaMaskAndroid() {
+                // Get current app state
+                const currentState = {
+                    sessionToken: document.getElementById('session-token')?.value || '',
+                    studentId: authSystem?.getCurrentUserInfo()?.id || '',
+                    organizer: authSystem?.getCurrentUserInfo()?.fullName || '',
+                    studentMessage: document.getElementById('student-message')?.value || '',
+                    currentUrl: window.location.href
+                };
+
+                // Call Android method to open MetaMask with app data
+                const result = await AndroidMetaMask.openInMetaMask(JSON.stringify(currentState));
+                
+                if (result.success) {
+                    // Create mock wallet connection for the current session
+                    return {
+                        provider: null,
+                        signer: {
+                            signMessage: async (message) => {
+                                // This will be handled by MetaMask in its browser
+                                return result.signature || 'mock_signature_' + Date.now();
+                            },
+                            getAddress: async () => {
+                                return result.address || '0x0000000000000000000000000000000000000000';
+                            }
+                        },
+                        address: result.address || '0x0000000000000000000000000000000000000000'
+                    };
+                } else {
+                    throw new Error(result.message || 'Failed to connect to MetaMask');
+                }
+            }
         })();
     """.trimIndent()
 
@@ -185,6 +270,47 @@ class MainActivity : AppCompatActivity() {
         fun startScan() {
             runOnUiThread {
                 checkCameraPermission()
+            }
+        }
+    }
+
+    inner class MetaMaskInterface {
+        @JavascriptInterface
+        fun openInMetaMask(appStateJson: String): String {
+            return try {
+                val appState = JSONObject(appStateJson)
+
+                // Encode the app state as URL parameters
+                val baseUrl = "https://81ff-2a00-ee2-6b05-5500-6552-69a-45b4-1c21.ngrok-free.app"
+                val encodedState = Base64.encodeToString(appStateJson.toByteArray(), Base64.URL_SAFE)
+                val urlWithState = "$baseUrl?appState=$encodedState"
+
+                // Create MetaMask deep link
+                val metamaskUrl = "https://metamask.app.link/dapp/$urlWithState"
+
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(metamaskUrl))
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+                runOnUiThread {
+                    try {
+                        startActivity(intent)
+                        Toast.makeText(this@MainActivity, "Opening in MetaMask...", Toast.LENGTH_SHORT).show()
+                    } catch (e: ActivityNotFoundException) {
+                        Toast.makeText(this@MainActivity, "MetaMask not installed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                // Return success response
+                JSONObject().apply {
+                    put("success", true)
+                    put("message", "Opening in MetaMask browser")
+                }.toString()
+
+            } catch (e: Exception) {
+                JSONObject().apply {
+                    put("success", false)
+                    put("message", "Error: ${e.message}")
+                }.toString()
             }
         }
     }

@@ -4,6 +4,7 @@ Link to web application repository:
 https://github.com/JureU/MagistrskaNaloga
 
 Mobile app differs from web app in way that users can scan the QR the organizers provides. All other functionalities stay the same in both variations.
+For working mobile app users must have MetaMask installed.
 
 ### Instructions:
 For mobile app use you must use ngrok to expose Intellij web app for HTTPS
