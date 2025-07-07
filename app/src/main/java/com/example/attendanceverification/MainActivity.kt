@@ -20,8 +20,13 @@ import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
-    private var qrScanCallback: ValueCallback<String>? = null
     private val LOCATION_REQUEST_CODE = 1001
+
+    // Change URL here
+    // Local Host
+    // webView.loadUrl("http://192.168.1.10:8080/")
+    // With ngrok for HTTPS
+    private val mainUrl = "https://3309-2a00-ee2-6b05-5500-d012-dcf9-ef7f-cd43.ngrok-free.app"
 
     // Camera permission launcher
     private val requestPermissionLauncher = registerForActivityResult(
@@ -73,20 +78,7 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = object : WebViewClient() {
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val url = request?.url.toString()
-
-                // ✅ Handle MetaMask deep links with app data
-                if (url.startsWith("intent://") || url.startsWith("metamask://") || url.startsWith("https://metamask.app.link")) {
-                    try {
-                        // Don't handle these URLs here - let the JavaScript interface handle MetaMask opening
-                        return false
-                    } catch (e: ActivityNotFoundException) {
-                        Toast.makeText(this@MainActivity, "MetaMask not installed", Toast.LENGTH_SHORT).show()
-                        return true
-                    }
-                }
-
-                // Load everything else normally inside the WebView
+                // Load everything inside the WebView
                 return false
             }
 
@@ -115,10 +107,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadWebApp() {
-        // Local Host
-        // webView.loadUrl("http://192.168.1.10:8080/")
-        // With ngrok for HTTPS
-        webView.loadUrl("https://81ff-2a00-ee2-6b05-5500-6552-69a-45b4-1c21.ngrok-free.app")
+        webView.loadUrl(mainUrl)
     }
 
     private fun injectQRScannerJS() {
@@ -165,25 +154,95 @@ class MainActivity : AppCompatActivity() {
     private fun injectMetaMaskJS() {
         val jsCode = """
         (function() {
-            // Override the connectWallet function to use Android MetaMask integration
-            window.originalConnectWallet = window.connectWallet;
-            
-            window.connectWallet = async function() {
-                try {
-                    if (window.AndroidMetaMask) {
-                        console.log("Using Android MetaMask integration...");
-                        return await connectMetaMaskAndroid();
-                    } else {
-                        console.log("Using original wallet connection...");
-                        return await window.originalConnectWallet();
-                    }
-                } catch (error) {
-                    console.error("Wallet connection failed:", error);
-                    throw error;
+            // Wait for the page to fully load and then override
+            setTimeout(function() {
+                // Change button text to "Povezi z Metamaskom"
+                const verifyButton = document.getElementById('verify-attendance');
+                if (verifyButton) {
+                    verifyButton.textContent = '🦊 Povezi z Metamaskom';
+                    
+                    // Remove any existing event listeners and add our own
+                    const newButton = verifyButton.cloneNode(true);
+                    verifyButton.parentNode.replaceChild(newButton, verifyButton);
+                    
+                    newButton.onclick = function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (window.AndroidMetaMask) {
+                            showMetaMaskModal();
+                        }
+                        return false;
+                    };
+                }
+            }, 1000);
+
+            // Also override the verifyAttendance function completely
+            window.verifyAttendance = function() {
+                if (window.AndroidMetaMask) {
+                    showMetaMaskModal();
+                } else {
+                    console.log('AndroidMetaMask not available, using default behavior');
                 }
             };
 
-            async function connectMetaMaskAndroid() {
+            function showMetaMaskModal() {
+                // Create modal overlay
+                const modal = document.createElement('div');
+                modal.id = 'metamask-connect-modal';
+                modal.style.cssText = `
+                    position: fixed;
+                    top: 0; left: 0; width: 100%; height: 100%;
+                    background: rgba(0,0,0,0.8);
+                    display: flex; justify-content: center; align-items: center;
+                    z-index: 9999;
+                `;
+
+                modal.innerHTML = `
+                    <div style="background: white; padding: 30px; border-radius: 15px; text-align: center; max-width: 400px; margin: 20px;">
+                        <h3 style="color: #333; margin-bottom: 20px;">🦊 Povezava z MetaMask</h3>
+                        
+                        <p style="color: #666; margin-bottom: 15px; line-height: 1.5;">
+                            To dejanje bo odprlo MetaMask vgrajeni brskalnik.
+                        </p>
+                        
+                        <p style="color: #666; margin-bottom: 20px; line-height: 1.5;">
+                            Zaradi večje varnosti se boste morali ponovno prijaviti, vendar bo vaša seja ohranjena.
+                        </p>
+
+                        <div style="display: flex; gap: 10px; justify-content: center;">
+                            <button id="connect-metamask" 
+                                    style="padding: 12px 24px; background: #f6851b; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
+                                Povezava
+                            </button>
+                            
+                            <button id="cancel-metamask" 
+                                    style="padding: 12px 24px; background: #ccc; color: #333; border: none; border-radius: 8px; cursor: pointer;">
+                                Prekliči
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                document.body.appendChild(modal);
+
+                // Connect button handler
+                document.getElementById('connect-metamask').onclick = function() {
+                    hideMetaMaskModal();
+                    connectToMetaMask();
+                };
+
+                // Cancel button handler
+                document.getElementById('cancel-metamask').onclick = function() {
+                    hideMetaMaskModal();
+                };
+            }
+
+            function hideMetaMaskModal() {
+                const modal = document.getElementById('metamask-connect-modal');
+                if (modal) modal.remove();
+            }
+
+            function connectToMetaMask() {
                 // Get current app state
                 const currentState = {
                     sessionToken: document.getElementById('session-token')?.value || '',
@@ -194,27 +253,39 @@ class MainActivity : AppCompatActivity() {
                 };
 
                 // Call Android method to open MetaMask with app data
-                const result = await AndroidMetaMask.openInMetaMask(JSON.stringify(currentState));
-                
-                if (result.success) {
-                    // Create mock wallet connection for the current session
-                    return {
-                        provider: null,
-                        signer: {
-                            signMessage: async (message) => {
-                                // This will be handled by MetaMask in its browser
-                                return result.signature || 'mock_signature_' + Date.now();
-                            },
-                            getAddress: async () => {
-                                return result.address || '0x0000000000000000000000000000000000000000';
-                            }
-                        },
-                        address: result.address || '0x0000000000000000000000000000000000000000'
-                    };
-                } else {
-                    throw new Error(result.message || 'Failed to connect to MetaMask');
-                }
+                const result = AndroidMetaMask.openInMetaMask(JSON.stringify(currentState));
+                console.log('MetaMask opening result:', result);
             }
+
+            // Override error handling for mobile
+            window.addEventListener('error', function(e) {
+                // Suppress attendance verification errors in mobile app
+                if (e.message && e.message.includes('Napaka pri preverjanju prisotnosti')) {
+                    e.preventDefault();
+                    return false;
+                }
+            });
+
+            // Override console.error for attendance verification
+            const originalConsoleError = console.error;
+            console.error = function(...args) {
+                const message = args.join(' ');
+                if (message.includes('Napaka pri preverjanju prisotnosti')) {
+                    // Don't show this error in mobile app
+                    return;
+                }
+                originalConsoleError.apply(console, args);
+            };
+
+            // Override alert for attendance verification
+            const originalAlert = window.alert;
+            window.alert = function(message) {
+                if (message && message.includes('Napaka pri preverjanju prisotnosti')) {
+                    // Don't show this alert in mobile app
+                    return;
+                }
+                originalAlert(message);
+            };
         })();
     """.trimIndent()
 
@@ -228,7 +299,6 @@ class MainActivity : AppCompatActivity() {
             ) == PackageManager.PERMISSION_GRANTED -> {
                 startQRScanner()
             }
-
             else -> {
                 requestPermissionLauncher.launch(Manifest.permission.CAMERA)
             }
@@ -278,12 +348,9 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun openInMetaMask(appStateJson: String): String {
             return try {
-                val appState = JSONObject(appStateJson)
-
                 // Encode the app state as URL parameters
-                val baseUrl = "https://81ff-2a00-ee2-6b05-5500-6552-69a-45b4-1c21.ngrok-free.app"
                 val encodedState = Base64.encodeToString(appStateJson.toByteArray(), Base64.URL_SAFE)
-                val urlWithState = "$baseUrl?appState=$encodedState"
+                val urlWithState = "$mainUrl?appState=$encodedState"
 
                 // Create MetaMask deep link
                 val metamaskUrl = "https://metamask.app.link/dapp/$urlWithState"
