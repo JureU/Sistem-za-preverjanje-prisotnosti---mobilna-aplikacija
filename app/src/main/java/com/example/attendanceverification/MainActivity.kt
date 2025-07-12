@@ -26,7 +26,7 @@ class MainActivity : AppCompatActivity() {
     // Local Host
     // webView.loadUrl("http://192.168.1.10:8080/")
     // With ngrok for HTTPS
-    private val mainUrl = "https://3309-2a00-ee2-6b05-5500-d012-dcf9-ef7f-cd43.ngrok-free.app"
+    private val mainUrl = "https://d7ee3be6234c.ngrok-free.app"
 
     // Camera permission launcher
     private val requestPermissionLauncher = registerForActivityResult(
@@ -120,7 +120,7 @@ class MainActivity : AppCompatActivity() {
                 container.style.marginBottom = '10px';
 
                 const qrButton = document.createElement('button');
-                qrButton.textContent = '📷 Scan QR Code';
+                qrButton.textContent = '📷 Skeniraj QR kodo';
                 qrButton.type = 'button';
                 qrButton.style.width = '100%';
                 qrButton.style.marginTop = '8px';
